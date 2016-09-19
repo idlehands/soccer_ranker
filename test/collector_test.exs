@@ -52,4 +52,23 @@ defmodule SoccerRankerTest.CollectorTest do
     ranks_and_errors = Collector.report_and_rank
     assert ranks_and_errors == ["1. Cougars, 3 pts", "2. Elephants, 1 pt", "2. Snakes, 1 pt", "4. Badgers, 0 pts", "Teams with errors: Elephants, Snakes"]
   end
+
+  test "report_and_rank: it can handle all teams being tied" do
+    Collector.start_link
+    Collector.add_points({{"Snakes", 1}, {"Elephants", 1}})
+    Collector.add_points({{"Cougars", 1},{"Badgers", 1}})
+
+    ranks = Collector.report_and_rank
+    assert ranks == ["1. Badgers, 1 pt", "1. Cougars, 1 pt", "1. Elephants, 1 pt", "1. Snakes, 1 pt"]
+  end
+
+  test "report_and_rank: it assigns correct rank after more than two way tie" do
+    Collector.start_link
+    Collector.add_points({{"Snakes", 1}, {"Elephants", 1}})
+    Collector.add_points({{"Cougars", 1},{"Badgers", 1}})
+    Collector.add_points({{"Bobcats", 0},{"Badgers", 1}})
+
+    ranks = Collector.report_and_rank
+    assert ranks == ["1. Badgers, 2 pts", "2. Cougars, 1 pt", "2. Elephants, 1 pt", "2. Snakes, 1 pt", "5. Bobcats, 0 pts"]
+  end
 end
