@@ -1,24 +1,10 @@
 # SoccerRanker
 
-**TODO: Add description**
+## Compile
 
-## Installation
+```mix escript.build```
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed as:
-
-  1. Add `soccer_ranker` to your list of dependencies in `mix.exs`:
-
-    ```elixir
-    def deps do
-      [{:soccer_ranker, "~> 0.1.0"}]
-    end
-    ```
-
-  2. Ensure `soccer_ranker` is started before your application:
-
-    ```elixir
-    def application do
-      [applications: [:soccer_ranker]]
-    end
-    ```
-
+## Run
+```./socker_ranker sample-input.txt```
+or, to see basic error handling:
+```./socker_ranker sample-error-input.txt```
