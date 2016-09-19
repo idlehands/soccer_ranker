@@ -15,11 +15,15 @@ defmodule SoccerRanker.Collector do
   end
 
   def add_points(points) do
-    GenServer.call(__MODULE__, {:add_points, points})
+    GenServer.call(__MODULE__, {:add_points, points}, 100_000_000)
   end
 
   def report do
-    GenServer.call(__MODULE__, :report, 100_000_000)
+    GenServer.call(__MODULE__, :report)
+  end
+
+  def report_and_rank do
+    report |> ranked_with_errors
   end
 
   def handle_call({:add_points, points}, _from, state) do
@@ -67,5 +71,68 @@ defmodule SoccerRanker.Collector do
   defp score_sort({team1name, team1points}, {team2name, team2points}) when team1points == team2points do
     team1name < team2name
   end
-end
 
+  defp ranked_with_errors(results) do
+    ranked_results = calculate_rank(results.ordered_teams)
+    ranked_strings = Enum.map(ranked_results, fn({rank, team_name, points}) ->
+      "#{rank}. #{team_name}, #{print_points(points)}"
+    end)
+
+    if Enum.count(results.teams_with_errors) > 0 do
+      sorted_error_teams = Enum.sort(results.teams_with_errors)
+      error_message = "Teams with errors: " <> Enum.join(sorted_error_teams, ", ")
+      ranked_strings ++ [error_message]
+    else
+      ranked_strings
+    end
+  end
+
+  defp calculate_rank(unranked) do
+    {team, score} = List.first(unranked)
+    ranked = [{1, team, score}]
+    unranked = List.delete_at(unranked, 0)
+    calculate_rank(ranked, unranked)
+  end
+  defp calculate_rank(ranked, []) do
+    ranked
+  end
+  defp calculate_rank(ranked, unranked) do
+    {previous_rank, _previous_name, previous_score} = List.last(ranked)
+    {new_name, new_score} = List.first(unranked)
+    new_rank = if previous_score == new_score do
+      previous_rank
+    else
+      previous_rank + rank_count(ranked)
+    end
+    ranked = ranked ++ [{new_rank, new_name, new_score}]
+    unranked = List.delete_at(unranked, 0)
+    calculate_rank(ranked, unranked)
+  end
+
+  defp rank_count([], _rank, count) do
+    count
+  end
+  defp rank_count(ranked, rank, count) do
+    {previous_rank, _previous_name, _previous_score} = List.last(ranked)
+    case previous_rank == rank do
+      true ->
+        ranked = List.delete_at(ranked, -1)
+        rank_count(ranked, previous_rank, count + 1)
+      false ->
+        count
+    end
+  end
+  defp rank_count(ranked) when is_list(ranked) do
+    {previous_rank, _previous_name, _previous_score} = List.last(ranked)
+    ranked = List.delete_at(ranked, -1)
+    rank_count(ranked, previous_rank, 1)
+  end
+
+  defp print_points(points) when points == 1 do
+    "1 pt"
+  end
+  defp print_points(points) do
+    "#{points} pts"
+  end
+
+end
