@@ -6,6 +6,10 @@ defmodule SoccerRanker.Collector do
     defstruct team_scores: %{}, teams_with_errors: []
   end
 
+  defmodule TeamData do
+    defstruct name: nil, points: 0, goal_difference: 0, rank: nil
+  end
+
   def start_link() do
     GenServer.start_link(__MODULE__, %Results{}, name: __MODULE__)
   end
@@ -15,7 +19,7 @@ defmodule SoccerRanker.Collector do
   end
 
   def add_points(points) do
-    GenServer.call(__MODULE__, {:add_points, points}, 100_000_000)
+    GenServer.call(__MODULE__, {:add_points, points}, 1_000_000)
   end
 
   def report do
@@ -51,31 +55,39 @@ defmodule SoccerRanker.Collector do
     |> aggregate_points(team2data)
   end
 
-  defp aggregate_points(state, {team_name, :error}) do
-    %{state | teams_with_errors: Enum.uniq([team_name | state.teams_with_errors])}
+  defp aggregate_points(state, %{points: :error} = team_data) do
+    %{state | teams_with_errors: Enum.uniq([team_data.name | state.teams_with_errors])}
   end
-  defp aggregate_points(state, {team_name, new_points}) do
-    existing_points = state.team_scores[team_name] || 0
-    new_total = existing_points + new_points
-    %{state | team_scores: Map.put(state.team_scores, team_name, new_total)}
+  defp aggregate_points(state, team_data) when is_map(team_data) do
+    existing_data = Map.get(state.team_scores, team_data.name, %TeamData{name: team_data.name})
+    updated_points = existing_data.points + team_data.points
+    updated_goal_difference = existing_data.goal_difference + team_data.goal_difference
+    updated_team_data = %TeamData{name: team_data.name, points: updated_points, goal_difference: updated_goal_difference}
+    %{state | team_scores: Map.put(state.team_scores, team_data.name, updated_team_data)}
   end
 
   defp ordered_results(state) do
     Map.to_list(state.team_scores)
-    |> Enum.sort(&score_sort(&1, &2))
+    |> Enum.map(fn({_name, data}) -> data end)
+    |> Enum.sort(&score_sort(&1,&2))
   end
 
-  defp score_sort({_team1name, team1points}, {_team2name, team2points}) when team1points != team2points do
-    team1points > team2points
+  defp score_sort(%{points: points1}, %{points: points2})
+  when points1 != points2 do
+    points1 > points2
   end
-  defp score_sort({team1name, team1points}, {team2name, team2points}) when team1points == team2points do
-    team1name < team2name
+  defp score_sort(%{goal_difference: gd1} = team1data, %{goal_difference: gd2} = team2data)
+  when gd1 == gd2 do
+    team1data.name < team2data.name
+  end
+  defp score_sort(team1data, team2data) do
+    team1data.goal_difference > team2data.goal_difference
   end
 
   defp ranked_with_errors(results) do
     ranked_results = calculate_rank(results.ordered_teams)
-    ranked_strings = Enum.map(ranked_results, fn({rank, team_name, points}) ->
-      "#{rank}. #{team_name}, #{print_points(points)}"
+    ranked_strings = Enum.map(ranked_results, fn(team_data) ->
+      "#{team_data.rank}. #{team_data.name}, #{print_points(team_data.points)}, GD: #{team_data.goal_difference}"
     end)
 
     if Enum.count(results.teams_with_errors) > 0 do
@@ -88,8 +100,8 @@ defmodule SoccerRanker.Collector do
   end
 
   defp calculate_rank(unranked) do
-    {team, score} = List.first(unranked)
-    ranked = [{1, team, score}]
+    team = List.first(unranked)
+    ranked = [%{team | rank: 1}]
     unranked = List.delete_at(unranked, 0)
     calculate_rank(ranked, unranked)
   end
@@ -97,14 +109,15 @@ defmodule SoccerRanker.Collector do
     ranked
   end
   defp calculate_rank(ranked, unranked) do
-    {previous_rank, _previous_name, previous_score} = List.last(ranked)
-    {new_name, new_score} = List.first(unranked)
-    new_rank = if previous_score == new_score do
-      previous_rank
+    ranked_team = List.last(ranked)
+    unranked_team = List.first(unranked)
+    new_rank = if unranked_team.points == ranked_team.points
+    && unranked_team.goal_difference == ranked_team.goal_difference do
+      ranked_team.rank
     else
-      previous_rank + rank_count(ranked)
+      ranked_team.rank + rank_count(ranked)
     end
-    ranked = ranked ++ [{new_rank, new_name, new_score}]
+    ranked = ranked ++ [%{unranked_team | rank: new_rank}]
     unranked = List.delete_at(unranked, 0)
     calculate_rank(ranked, unranked)
   end
@@ -113,7 +126,7 @@ defmodule SoccerRanker.Collector do
     count
   end
   defp rank_count(ranked, rank, count) do
-    {previous_rank, _previous_name, _previous_score} = List.last(ranked)
+    %{rank: previous_rank} = List.last(ranked)
     case previous_rank == rank do
       true ->
         ranked = List.delete_at(ranked, -1)
@@ -123,7 +136,7 @@ defmodule SoccerRanker.Collector do
     end
   end
   defp rank_count(ranked) when is_list(ranked) do
-    {previous_rank, _previous_name, _previous_score} = List.last(ranked)
+    %{rank: previous_rank} = List.last(ranked)
     ranked = List.delete_at(ranked, -1)
     rank_count(ranked, previous_rank, 1)
   end
